@@ -61,7 +61,7 @@ def best_anchor_box(box):
     max_iou = -1
 
     shifted_box = BoundingBox(0, 0, box[2], box[3])
-    anchors = [BoundingBox(0, 0, config.ANCHORS[2*i], config.ANCHORS[2*(i+1)]) for i in range(len(config.ANCHORS)//2)]
+    anchors = [BoundingBox(0, 0, config.ANCHORS[2*i], config.ANCHORS[2*i+1]) for i in range(len(config.ANCHORS)//2)]
 
     for i in range(len(anchors)):
         anchor = anchors[i]
@@ -71,6 +71,7 @@ def best_anchor_box(box):
             best_anchor = i
             max_iou = iou
 
+    return best_anchor
 
 def build_dataset():
     print("inside build_dataset")
@@ -146,7 +147,9 @@ def build_dataset():
                 # increment the total number of examples(bb)
                 total += 1
 
-                # Figure out which anchor box to use
+                # Find the most suitable anchor box
+                anchor_box = best_anchor_box(box)
+                # anchor_box += 1
 
                 # Figure the index of the label
                 label_index = config.CLASSES[label]
@@ -155,10 +158,6 @@ def build_dataset():
                 y[i, grid_x, grid_y, anchor_box, :4] = box
                 y[i, grid_x, grid_y, anchor_box, 4] = 1
                 y[i, grid_x, grid_y, anchor_box, 4+label_index] = 1
-
-                # Find the most suitable anchor box
-                anchor_box = best_anchor_box(box)
-                #anchor_box += 1
 
                 cv2.rectangle(img, (int(startX), int(startY)), (int(endX), int(endY)), (0, 255, 0), 2)
                 cv2.imshow('Image', img)
