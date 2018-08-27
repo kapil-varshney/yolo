@@ -1,9 +1,10 @@
 # import the required libraries
 from config import lisa_config as config
 from sklearn.model_selection import train_test_split
-import tensorflow as tf
 import os
-
+import cv2
+import numpy as np
+from utils import BoundingBox, bbox_iou
 
 def parse_annotations():
     # initialize a data dictionary used to map each image filename to all
@@ -53,7 +54,26 @@ def create_dataset(D):
 
     return datasets
 
+
+def best_anchor_box(box):
+    # find the anchor that best predicts this box
+    best_anchor = -1
+    max_iou = -1
+
+    shifted_box = BoundingBox(0, 0, box[2], box[3])
+    anchors = [BoundingBox(0, 0, config.ANCHORS[2*i], config.ANCHORS[2*(i+1)]) for i in range(len(config.ANCHORS)//2)]
+
+    for i in range(len(anchors)):
+        anchor = anchors[i]
+        iou = bbox_iou(shifted_box, anchor)
+
+        if max_iou < iou:
+            best_anchor = i
+            max_iou = iou
+
+
 def build_dataset():
+    print("inside build_dataset")
     D = parse_annotations()
     datasets = create_dataset(D)
 
@@ -61,16 +81,15 @@ def build_dataset():
     for (dType, keys, outputPath) in datasets:
 
         # Array to store all images
-        x = np.zeros(len(keys), config.IMAGE_H, config.IMAGE_W, 3)
+        x = np.zeros((len(keys), config.IMAGE_H, config.IMAGE_W, 3))
         # Array to store all grid+ bb coords + labels
-        y = np.zeros(len(keys), config.GRID_S, config.GRID_S, config.BOXES, 4 + 1 + config.NUM_CLASSES)
+        y = np.zeros((len(keys), config.GRID_S, config.GRID_S, config.BOXES, 4 + 1 + config.NUM_CLASSES))
 
         # initialize the writer and initialize the total number
         # of examples written to file
         print("[INFO] processing '{}'...".format(dType))
-        writer_x = HDF5DatasetWriter((len(keys), config.IMAGE_H, config.IMAGE_W, 3), outputPath)
-        writer_y = HDF5DatasetWriter((len(keys), config.GRID_S, config.GRID_S, config.BOXES, 4 + 1 + config.NUM_CLASSES),
-                                     'lisa/hdf5/trainY.hdf5')
+        #writer_x = HDF5DatasetWriter((len(keys), config.IMAGE_H, config.IMAGE_W, 3), outputPath)
+        #writer_y = HDF5DatasetWriter((len(keys), config.GRID_S, config.GRID_S, config.BOXES, 4 + 1 + config.NUM_CLASSES),'lisa/hdf5/trainY.hdf5')
         total = 0
 
         # loop over all the keys in the current set
@@ -88,6 +107,7 @@ def build_dataset():
             img = cv2.resize(image, (config.IMAGE_H, config.IMAGE_W), interpolation=cv2.INTER_AREA)
             x[i] = img
 
+
             # Calculate the ratios of resized to original dimensions
             w_ratio = config.IMAGE_W / w
             h_ratio = config.IMAGE_H / h
@@ -95,6 +115,8 @@ def build_dataset():
             # Calculate the grid cell width and height
             grid_cell_w = config.IMAGE_W / config.GRID_S
             grid_cell_h = config.IMAGE_H / config.GRID_S
+
+            anchor_box = 0
 
             # loop over the bounding boxes + labels associated with the image
             for (label, (startX, startY, endX, endY)) in D[k]:
@@ -115,6 +137,7 @@ def build_dataset():
                 c_y_grid = c_y / grid_cell_h
                 c_w_grid = c_w / grid_cell_w
                 c_h_grid = c_h / grid_cell_h
+                box = [c_x_grid, c_y_grid, c_w_grid, c_h_grid]
 
                 # Determine the grid cell to place the center coordinates in
                 grid_x = int(c_x_grid)
@@ -125,21 +148,29 @@ def build_dataset():
 
                 # Figure out which anchor box to use
 
-
                 # Figure the index of the label
-
+                label_index = config.CLASSES[label]
 
                 # Create the Y array
-                y[i, grid_x, grid_y, anchor_box, :4] = c_x_grid, c_y_grid, c_w_grid, c_h_grid
+                y[i, grid_x, grid_y, anchor_box, :4] = box
                 y[i, grid_x, grid_y, anchor_box, 4] = 1
-                y[i, grid_x, grid_y, anchor_box, 5+label_index] = 1
+                y[i, grid_x, grid_y, anchor_box, 4+label_index] = 1
+
+                # Find the most suitable anchor box
+                anchor_box = best_anchor_box(box)
+                #anchor_box += 1
+
+                cv2.rectangle(img, (int(startX), int(startY)), (int(endX), int(endY)), (0, 255, 0), 2)
+                cv2.imshow('Image', img)
+                cv2.waitKey(0)
 
             # add the image and label to the HDF5
-            writer.add([image], [label])
+            #writer.add([image], [label])
 
         # close the writer and print the diagnostics information to the user
-        writer.close()
-        print("[INFO] {} examples saved for '{}'".format(total, dType))
+        #writer.close()
+        #print("[INFO] {} examples saved for '{}'".format(total, dType))
 
 
 if __name__ == '__main__':
+    build_dataset()
