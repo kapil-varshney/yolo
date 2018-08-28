@@ -5,6 +5,9 @@ import os
 import cv2
 import numpy as np
 from utils import BoundingBox, bbox_iou
+from hdf5datasetwriter import HDF5DatasetWriter
+from tqdm import tqdm
+
 
 def parse_annotations():
     # initialize a data dictionary used to map each image filename to all
@@ -73,6 +76,7 @@ def best_anchor_box(box):
 
     return best_anchor
 
+
 def build_dataset():
     print("inside build_dataset")
     D = parse_annotations()
@@ -81,20 +85,23 @@ def build_dataset():
     # loop over the datasets
     for (dType, keys, outputPath) in datasets:
 
+        # Define the size of arrays
+        x_shape = (len(keys), config.IMAGE_H, config.IMAGE_W, 3)
+        y_shape = (len(keys), config.GRID_S, config.GRID_S, config.BOXES, 4 + 1 + config.NUM_CLASSES)
         # Array to store all images
-        x = np.zeros((len(keys), config.IMAGE_H, config.IMAGE_W, 3))
-        # Array to store all grid+ bb coords + labels
-        y = np.zeros((len(keys), config.GRID_S, config.GRID_S, config.BOXES, 4 + 1 + config.NUM_CLASSES))
+        x = np.zeros(x_shape)
+        # Array to store all grid + bb coords + labels
+        y = np.zeros(y_shape)
 
         # initialize the writer and initialize the total number
         # of examples written to file
         print("[INFO] processing '{}'...".format(dType))
-        #writer_x = HDF5DatasetWriter((len(keys), config.IMAGE_H, config.IMAGE_W, 3), outputPath)
-        #writer_y = HDF5DatasetWriter((len(keys), config.GRID_S, config.GRID_S, config.BOXES, 4 + 1 + config.NUM_CLASSES),'lisa/hdf5/trainY.hdf5')
+        writer = HDF5DatasetWriter(x_shape, y_shape, outputPath)
+
         total = 0
 
         # loop over all the keys in the current set
-        for i, k in enumerate(keys):
+        for i, k in tqdm(enumerate(keys)):
             # load the input image from disk
             image = cv2.imread(k)
             (h, w, c) = image.shape
@@ -108,7 +115,6 @@ def build_dataset():
             img = cv2.resize(image, (config.IMAGE_H, config.IMAGE_W), interpolation=cv2.INTER_AREA)
             x[i] = img
 
-
             # Calculate the ratios of resized to original dimensions
             w_ratio = config.IMAGE_W / w
             h_ratio = config.IMAGE_H / h
@@ -117,7 +123,7 @@ def build_dataset():
             grid_cell_w = config.IMAGE_W / config.GRID_S
             grid_cell_h = config.IMAGE_H / config.GRID_S
 
-            anchor_box = 0
+            #anchor_box = 0
 
             # loop over the bounding boxes + labels associated with the image
             for (label, (startX, startY, endX, endY)) in D[k]:
@@ -159,16 +165,19 @@ def build_dataset():
                 y[i, grid_x, grid_y, anchor_box, 4] = 1
                 y[i, grid_x, grid_y, anchor_box, 4+label_index] = 1
 
+                """
+                # Display a few images to visually check the transformations of coordinates
                 cv2.rectangle(img, (int(startX), int(startY)), (int(endX), int(endY)), (0, 255, 0), 2)
                 cv2.imshow('Image', img)
                 cv2.waitKey(0)
+                """
 
-            # add the image and label to the HDF5
-            #writer.add([image], [label])
+        # add the image and label to the HDF5
+        writer.add(x, y)
 
         # close the writer and print the diagnostics information to the user
-        #writer.close()
-        #print("[INFO] {} examples saved for '{}'".format(total, dType))
+        writer.close()
+        print("[INFO] {} examples (objects) saved for '{}'".format(total, dType))
 
 
 if __name__ == '__main__':
